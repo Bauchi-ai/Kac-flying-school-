@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import com.example.data.model.CurriculumModule
 import com.example.data.model.FlightBooking
 import com.example.data.model.StudentProfile
 import com.example.data.model.PaymentTransaction
+import com.example.data.model.AviationDocument
 import com.example.ui.viewmodel.KacViewModel
 
 // Custom Theme Color Tokens
@@ -64,6 +66,7 @@ sealed class PortalTab(val route: String, val title: String, val icon: ImageVect
     object Registration : PortalTab("registration", "Profile", Icons.Default.HowToReg)
     object Scheduling : PortalTab("scheduling", "Flights", Icons.Default.FlightTakeoff)
     object Curriculum : PortalTab("curriculum", "Study", Icons.Default.School)
+    object Finance : PortalTab("finance", "Finance", Icons.Default.AccountBalanceWallet)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,6 +82,7 @@ fun KacPortalScreen(
     val bookingsState by viewModel.flightBookings.collectAsStateWithLifecycle()
     val modulesState by viewModel.curriculumModules.collectAsStateWithLifecycle()
     val transactionsState by viewModel.paymentTransactions.collectAsStateWithLifecycle()
+    val documentsState by viewModel.aviationDocuments.collectAsStateWithLifecycle()
 
     var activeQuizModule by remember { mutableStateOf<CurriculumModule?>(null) }
 
@@ -198,13 +202,36 @@ fun KacPortalScreen(
                         profile = profileState,
                         bookings = bookingsState,
                         modules = modulesState,
-                        onNavigate = { tab -> currentTab = tab }
+                        onNavigate = { tab -> currentTab = tab },
+                        onAddMockFlight = {
+                            val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                            // Create a booking 3 hours from now
+                            val cal = java.util.Calendar.getInstance()
+                            cal.add(java.util.Calendar.HOUR_OF_DAY, 3)
+                            val timeStr = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.US).format(cal.time)
+                            
+                            val mockBooking = FlightBooking(
+                                date = currentDate,
+                                time = timeStr,
+                                aircraft = "Cessna 172 Skyhawk (5Y-KAC)",
+                                instructor = "Capt. James Mwangi",
+                                durationHours = 1.5f,
+                                purpose = "Dual General Handling (Simulated)",
+                                status = "Scheduled"
+                            )
+                            viewModel.bookFlight(mockBooking)
+                        }
                     )
                     PortalTab.Registration -> RegistrationTab(
                         profile = profileState,
+                        documents = documentsState,
                         onSave = { updatedProfile ->
                             viewModel.saveProfile(updatedProfile)
                             Toast.makeText(context, "Cadet Profile Saved Successfully!", Toast.LENGTH_LONG).show()
+                        },
+                        onUploadDoc = { newDoc ->
+                            viewModel.uploadDocument(newDoc)
+                            Toast.makeText(context, "Document added successfully!", Toast.LENGTH_LONG).show()
                         }
                     )
                     PortalTab.Scheduling -> SchedulingTab(
@@ -238,6 +265,17 @@ fun KacPortalScreen(
                             profile = profileState,
                             onInquire = { courseName, message ->
                                 Toast.makeText(context, "Inquiry for $courseName submitted! Our admissions team will email you.", Toast.LENGTH_LONG).show()
+                            },
+                            onNavigateToFinance = { currentTab = PortalTab.Finance }
+                        )
+                    }
+                    PortalTab.Finance -> {
+                        FinanceTab(
+                            profile = profileState,
+                            transactions = transactionsState,
+                            onPay = { amount, purpose, paymentMethod, billingRef ->
+                                viewModel.processPayment(amount, purpose, paymentMethod, billingRef)
+                                Toast.makeText(context, "Payment of KES " + String.format("%,.2f", amount) + " Processed Successfully!", Toast.LENGTH_LONG).show()
                             }
                         )
                     }
@@ -268,7 +306,8 @@ fun DashboardTab(
     profile: StudentProfile?,
     bookings: List<FlightBooking>,
     modules: List<CurriculumModule>,
-    onNavigate: (PortalTab) -> Unit
+    onNavigate: (PortalTab) -> Unit,
+    onAddMockFlight: () -> Unit
 ) {
     val context = LocalContext.current
     val isRegistered = profile?.isRegistered ?: false
@@ -345,6 +384,15 @@ fun DashboardTab(
                     }
                 }
             }
+        }
+
+        // Upcoming 24-Hour Flights Alert
+        item {
+            UpcomingFlightsAlert(
+                bookings = bookings,
+                onNavigateToScheduling = { onNavigate(PortalTab.Scheduling) },
+                onAddMockFlight = onAddMockFlight
+            )
         }
 
         // Quick Stats Row
@@ -665,7 +713,9 @@ fun AnnouncementItem(
 @Composable
 fun RegistrationTab(
     profile: StudentProfile?,
-    onSave: (StudentProfile) -> Unit
+    documents: List<AviationDocument>,
+    onSave: (StudentProfile) -> Unit,
+    onUploadDoc: (AviationDocument) -> Unit
 ) {
     val currentProfile = profile ?: StudentProfile()
 
@@ -694,6 +744,375 @@ fun RegistrationTab(
         "None (Ground Theory Only)"
     )
 
+    var activeSubTab by remember { mutableStateOf(0) } // 0 = Profile, 1 = Documents
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = activeSubTab,
+            containerColor = Color.White,
+            contentColor = NavyPrimary,
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    modifier = Modifier.tabIndicatorOffset(tabPositions[activeSubTab]),
+                    color = NavyPrimary
+                )
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Tab(
+                selected = activeSubTab == 0,
+                onClick = { activeSubTab = 0 },
+                text = { Text("Cadet Profile", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
+                icon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                selectedContentColor = NavyPrimary,
+                unselectedContentColor = MutedText,
+                modifier = Modifier.testTag("profile_subtab")
+            )
+            Tab(
+                selected = activeSubTab == 1,
+                onClick = { activeSubTab = 1 },
+                text = { Text("Aviation Documents (${documents.size})", fontWeight = FontWeight.Bold, fontSize = 13.sp) },
+                icon = { Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                selectedContentColor = NavyPrimary,
+                unselectedContentColor = MutedText,
+                modifier = Modifier.testTag("documents_subtab")
+            )
+        }
+
+        if (activeSubTab == 0) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    Text(
+                        text = "Student Pilot Registration Portal",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = NavyPrimary
+                    )
+                    Text(
+                        text = "Keep your academic and pilot profile credentials up to date. This regulates your flight scheduling permissions.",
+                        fontSize = 13.sp,
+                        color = MutedText
+                    )
+                }
+
+                // Pilot Badge visualization
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = NavyPrimary),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(modifier = Modifier.padding(20.dp)) {
+                            Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "KENYA AVIATION CENTER",
+                                            color = GoldAccent,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 11.sp,
+                                            letterSpacing = 1.sp
+                                        )
+                                        Text(
+                                            text = "FLIGHT CADET BADGE",
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.AirplanemodeActive,
+                                        contentDescription = "Wings",
+                                        tint = GoldAccent,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.height(24.dp))
+                                
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    // Avatar box placeholder
+                                    Box(
+                                        modifier = Modifier
+                                            .size(60.dp)
+                                            .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                                            .border(1.5.dp, GoldAccent, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = "Pilot Avatar",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column {
+                                        Text(
+                                            text = name.ifEmpty { "Aviation Cadet" },
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 18.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "ID: ${studentId.ifEmpty { "PENDING REGISTRATION" }}",
+                                            color = GoldAccent,
+                                            fontSize = 13.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = licenseType,
+                                            color = Color.White.copy(alpha = 0.8f),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(20.dp))
+
+                                Divider(color = Color.White.copy(alpha = 0.2f))
+                                
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "MEDICAL CERTIFICATE",
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = medicalStatus,
+                                            color = if (medicalStatus.contains("Expired") || medicalStatus.contains("None")) Color(0xFFFCA5A5) else Color(0xFF6EE7B7),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "LOGGED HOURS",
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "$totalHoursText hrs",
+                                            color = GoldAccent,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Form Fields
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = CardBg),
+                        elevation = CardDefaults.cardElevation(2.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "Edit Cadet Profile",
+                                fontWeight = FontWeight.Bold,
+                                color = NavyPrimary,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+
+                            OutlinedTextField(
+                                value = name,
+                                onValueChange = { name = it },
+                                label = { Text("Full Name") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_name_input"),
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
+                            )
+
+                            OutlinedTextField(
+                                value = studentId,
+                                onValueChange = { studentId = it },
+                                label = { Text("KAC Student ID") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_id_input"),
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
+                            )
+
+                            OutlinedTextField(
+                                value = email,
+                                onValueChange = { email = it },
+                                label = { Text("Academy Email") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_email_input"),
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                            )
+
+                            OutlinedTextField(
+                                value = phone,
+                                onValueChange = { phone = it },
+                                label = { Text("Phone Number") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_phone_input"),
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                            )
+
+                            // License Dropdown
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = licenseType,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("License Objective") },
+                                    modifier = Modifier.fillMaxWidth().clickable { expandedLicense = true },
+                                    leadingIcon = { Icon(Icons.Default.Flight, contentDescription = null) },
+                                    trailingIcon = {
+                                        IconButton(onClick = { expandedLicense = true }) {
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                        }
+                                    }
+                                )
+                                DropdownMenu(
+                                    expanded = expandedLicense,
+                                    onDismissRequest = { expandedLicense = false },
+                                    modifier = Modifier.fillMaxWidth(0.9f)
+                                ) {
+                                    licenseOptions.forEach { opt ->
+                                        DropdownMenuItem(
+                                            text = { Text(opt) },
+                                            onClick = {
+                                                licenseType = opt
+                                                expandedLicense = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Medical Dropdown
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = medicalStatus,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Medical Certificate Status") },
+                                    modifier = Modifier.fillMaxWidth().clickable { expandedMedical = true },
+                                    leadingIcon = { Icon(Icons.Default.LocalHospital, contentDescription = null) },
+                                    trailingIcon = {
+                                        IconButton(onClick = { expandedMedical = true }) {
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                        }
+                                    }
+                                )
+                                DropdownMenu(
+                                    expanded = expandedMedical,
+                                    onDismissRequest = { expandedMedical = false },
+                                    modifier = Modifier.fillMaxWidth(0.9f)
+                                ) {
+                                    medicalOptions.forEach { opt ->
+                                        DropdownMenuItem(
+                                            text = { Text(opt) },
+                                            onClick = {
+                                                medicalStatus = opt
+                                                expandedMedical = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = totalHoursText,
+                                onValueChange = { totalHoursText = it },
+                                label = { Text("Total Certified Flight Hours") },
+                                modifier = Modifier.fillMaxWidth().testTag("reg_hours_input"),
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Timelapse, contentDescription = null) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Button(
+                                onClick = {
+                                    val hoursVal = totalHoursText.toFloatOrNull() ?: currentProfile.totalHours
+                                    val updated = StudentProfile(
+                                        id = 1,
+                                        fullName = name,
+                                        studentId = studentId,
+                                        licenseType = licenseType,
+                                        medicalStatus = medicalStatus,
+                                        totalHours = hoursVal,
+                                        email = email,
+                                        phone = phone,
+                                        isRegistered = name.isNotBlank() && studentId.isNotBlank()
+                                    )
+                                    onSave(updated)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("save_profile_button"),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Save, contentDescription = "Save")
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Save Cadet Credentials", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            AviationDocumentsSection(
+                documents = documents,
+                studentName = name.ifEmpty { "Aviation Cadet" },
+                studentId = studentId.ifEmpty { "KAC-2026-0042" },
+                onUploadDoc = onUploadDoc
+            )
+        }
+    }
+}
+
+@Composable
+fun AviationDocumentsSection(
+    documents: List<AviationDocument>,
+    studentName: String,
+    studentId: String,
+    onUploadDoc: (AviationDocument) -> Unit
+) {
+    var selectedViewDoc by remember { mutableStateOf<AviationDocument?>(null) }
+    var selectedDownloadDoc by remember { mutableStateOf<AviationDocument?>(null) }
+    var showUploadDialog by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -701,305 +1120,739 @@ fun RegistrationTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text(
-                text = "Student Pilot Registration Portal",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = NavyPrimary
-            )
-            Text(
-                text = "Keep your academic and pilot profile credentials up to date. This regulates your flight scheduling permissions.",
-                fontSize = 13.sp,
-                color = MutedText
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Aviation Documents Registry",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = NavyPrimary
+                    )
+                    Text(
+                        text = "Official certificates and active licenses endorsed by Kenya Aviation Center & Civil Aviation Authority. You can view, verify, and download PDF copies below.",
+                        fontSize = 13.sp,
+                        color = MutedText
+                    )
+                }
+                
+                Button(
+                    onClick = { showUploadDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.testTag("upload_document_btn")
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Upload", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Upload", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
-        // Pilot Badge visualization
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = NavyPrimary),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(6.dp),
-                modifier = Modifier.fillMaxWidth()
+        if (documents.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    colors = CardDefaults.cardColors(containerColor = CardBg)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FolderOpen,
+                            contentDescription = "No Documents",
+                            tint = MutedText,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No Training Documents Registered",
+                            fontWeight = FontWeight.Bold,
+                            color = NavyPrimary,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            text = "Upload digital files or contact the KAC registrar to submit your physical certifications.",
+                            fontSize = 13.sp,
+                            color = MutedText,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            items(documents) { doc ->
+                DocumentCard(
+                    doc = doc,
+                    onView = { selectedViewDoc = doc },
+                    onDownload = { selectedDownloadDoc = doc }
+                )
+            }
+        }
+    }
+
+    selectedViewDoc?.let { doc ->
+        DocumentViewerDialog(
+            doc = doc,
+            studentName = studentName,
+            studentId = studentId,
+            onDismiss = { selectedViewDoc = null }
+        )
+    }
+
+    selectedDownloadDoc?.let { doc ->
+        DocumentDownloaderDialog(
+            doc = doc,
+            onDismiss = { selectedDownloadDoc = null }
+        )
+    }
+
+    if (showUploadDialog) {
+        UploadDocumentDialog(
+            onDismiss = { showUploadDialog = false },
+            onUpload = { title, type, docNum, issueDate, expiryDate, desc ->
+                val randomId = "DOC-${(100..999).random()}"
+                val safeFileName = "KAC_${type.replace(" ", "_").uppercase()}_${docNum.replace("/", "_")}.pdf"
+                val newDoc = AviationDocument(
+                    id = randomId,
+                    title = title,
+                    type = type,
+                    fileName = safeFileName,
+                    issueDate = issueDate,
+                    expiryDate = expiryDate,
+                    status = "Pending Verification",
+                    description = desc,
+                    docNumber = docNum
+                )
+                onUploadDoc(newDoc)
+                showUploadDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun DocumentCard(
+    doc: AviationDocument,
+    onView: () -> Unit,
+    onDownload: () -> Unit
+) {
+    val statusColor = when {
+        doc.status.contains("Active") || doc.status.contains("Verified") || doc.status.contains("Certified") -> Color(0xFF10B981)
+        doc.status.contains("Pending") -> Color(0xFFF59E0B)
+        else -> Color(0xFFEF4444)
+    }
+
+    val docIcon = when (doc.type) {
+        "Student Pilot License" -> Icons.Default.Badge
+        "Medical Certificate" -> Icons.Default.LocalHospital
+        "Radio License" -> Icons.Default.SettingsVoice
+        "English Proficiency" -> Icons.Default.Language
+        else -> Icons.Default.School
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("doc_card_${doc.id}"),
+        colors = CardDefaults.cardColors(containerColor = CardBg),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.padding(20.dp)) {
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                Text(
-                                    text = "KENYA AVIATION CENTER",
-                                    color = GoldAccent,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 11.sp,
-                                    letterSpacing = 1.sp
-                                )
-                                Text(
-                                    text = "FLIGHT CADET BADGE",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 10.sp
-                                )
-                            }
-                            Icon(
-                                imageVector = Icons.Default.AirplanemodeActive,
-                                contentDescription = "Wings",
-                                tint = GoldAccent,
-                                modifier = Modifier.size(36.dp)
-                            )
-                        }
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(NavyPrimary.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(imageVector = docIcon, contentDescription = doc.type, tint = NavyPrimary, modifier = Modifier.size(24.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = doc.title,
+                        fontWeight = FontWeight.Bold,
+                        color = NavyPrimary,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = "Ref: ${doc.docNumber}",
+                        color = MutedText,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                Surface(
+                    color = statusColor.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = doc.status.uppercase(),
+                        color = statusColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = doc.description,
+                color = DarkText,
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Divider(color = Color(0xFFF1F5F9))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(text = "ISSUED", color = MutedText, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    Text(text = doc.issueDate, color = DarkText, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                }
+                Column {
+                    Text(text = "EXPIRES", color = MutedText, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    Text(text = doc.expiryDate, color = DarkText, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = onView,
+                        colors = ButtonDefaults.textButtonColors(contentColor = NavyPrimary),
+                        modifier = Modifier.testTag("view_doc_btn_${doc.id}")
+                    ) {
+                        Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("View", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = onDownload,
+                        colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.testTag("download_doc_btn_${doc.id}")
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("PDF", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DocumentViewerDialog(
+    doc: AviationDocument,
+    studentName: String,
+    studentId: String,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .wrapContentHeight()
+                .padding(16.dp)
+                .border(2.dp, GoldAccent, RoundedCornerShape(16.dp)),
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Header of dialog
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Verified, contentDescription = null, tint = GoldAccent, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Secure Digital Document Viewer", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GoldAccent, fontFamily = FontFamily.Monospace)
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MutedText)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Certificate Frame
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFAFAFA)),
+                    border = BorderStroke(2.dp, NavyPrimary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // KCAA Header / Wings
+                        Icon(
+                            imageVector = Icons.Default.AirplanemodeActive,
+                            contentDescription = null,
+                            tint = NavyPrimary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "KENYA CIVIL AVIATION AUTHORITY",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp,
+                            color = NavyPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = "In coordination with Kenya Aviation Center Flight Operations",
+                            fontSize = 9.sp,
+                            color = MutedText,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Divider(color = NavyPrimary, thickness = 1.dp)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Document Title
+                        Text(
+                            text = doc.title.uppercase(),
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            color = NavyPrimary,
+                            textAlign = TextAlign.Center,
+                            letterSpacing = 1.sp
+                        )
                         
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // Avatar box placeholder
-                            Box(
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .background(Color.White.copy(alpha = 0.15f), CircleShape)
-                                    .border(1.5.dp, GoldAccent, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = "Pilot Avatar",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = name.ifEmpty { "Aviation Cadet" },
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "ID: ${studentId.ifEmpty { "PENDING REGISTRATION" }}",
-                                    color = GoldAccent,
-                                    fontSize = 13.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Text(
-                                    text = licenseType,
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
+                        Text(
+                            text = "OFFICIAL DIGITAL CERTIFICATE OF ENDORSEMENT",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.sp,
+                            color = GoldAccent,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
 
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        Divider(color = Color.White.copy(alpha = 0.2f))
-                        
-                        Spacer(modifier = Modifier.height(10.dp))
+                        // Student Details Box
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White, RoundedCornerShape(6.dp))
+                                .border(1.dp, Color(0xFFE2E8F0))
+                                .padding(12.dp)
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("HOLDER / CADET NAME", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MutedText)
+                                    Text(studentName.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Black, color = DarkText)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("CADET ID NUMBER", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MutedText)
+                                    Text(studentId, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavyPrimary, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("CERTIFICATE REF NUMBER", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MutedText)
+                                    Text(doc.docNumber, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("DOCUMENT CLASSIFICATION", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MutedText)
+                                    Text(doc.type, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                                }
+                            }
+                        }
 
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Validity details
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text(
-                                    text = "MEDICAL CERTIFICATE",
-                                    color = Color.White.copy(alpha = 0.5f),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = medicalStatus,
-                                    color = if (medicalStatus.contains("Expired") || medicalStatus.contains("None")) Color(0xFFFCA5A5) else Color(0xFF6EE7B7),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(12.dp), tint = MutedText)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("DATE OF ISSUE", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MutedText)
+                                }
+                                Text(doc.issueDate, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText)
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "LOGGED HOURS",
-                                    color = Color.White.copy(alpha = 0.5f),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(12.dp), tint = MutedText)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("DATE OF EXPIRY", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MutedText)
+                                }
+                                Text(doc.expiryDate, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (doc.expiryDate.contains("Expired")) Color.Red else DarkText)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Stamps and Signatures section
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Official Circular Stamp
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .background(Color.Transparent)
+                                    .border(2.dp, Color(0xFF2563EB).copy(alpha = 0.6f), CircleShape)
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .background(Color.Transparent)
+                                        .border(1.dp, Color(0xFF2563EB).copy(alpha = 0.4f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("KAC FLIGHT", fontSize = 6.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB).copy(alpha = 0.8f))
+                                        Text("APPROVED", fontSize = 7.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB).copy(alpha = 0.8f))
+                                        Text("STAMP", fontSize = 6.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB).copy(alpha = 0.8f))
+                                    }
+                                }
+                            }
+
+                            // QR verification code placeholder
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(Color.White)
+                                    .border(1.dp, Color.LightGray)
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.QrCode,
+                                    contentDescription = "Verification QR",
+                                    tint = Color.Black,
+                                    modifier = Modifier.fillMaxSize()
                                 )
+                            }
+
+                            // Instructor Signature
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "$totalHoursText hrs",
-                                    color = GoldAccent,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Black
+                                    text = "Capt R. Kiprop",
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E3A8A),
+                                    fontSize = 12.sp
+                                )
+                                Divider(color = Color.LightGray, thickness = 1.dp, modifier = Modifier.width(90.dp))
+                                Text(
+                                    text = "CHIEF FLIGHT INSTRUCTOR",
+                                    fontSize = 7.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MutedText,
+                                    modifier = Modifier.padding(top = 2.dp)
                                 )
                             }
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Close Document View", fontWeight = FontWeight.Bold)
+                }
             }
         }
+    }
+}
 
-        // Form Fields
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardBg),
-                elevation = CardDefaults.cardElevation(2.dp),
-                modifier = Modifier.fillMaxWidth()
+@Composable
+fun DocumentDownloaderDialog(
+    doc: AviationDocument,
+    onDismiss: () -> Unit
+) {
+    var progress by remember { mutableStateOf(0f) }
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        while (progress < 1f) {
+            kotlinx.coroutines.delay(100)
+            progress += 0.05f
+        }
+        Toast.makeText(context, "${doc.title} PDF downloaded successfully to device memory!", Toast.LENGTH_LONG).show()
+        onDismiss()
+    }
+
+    Dialog(
+        onDismissRequest = { /* Don't dismiss while downloading */ }
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Icon(
+                    imageVector = Icons.Default.CloudUpload,
+                    contentDescription = null,
+                    tint = NavyPrimary,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Requesting Secure PDF...",
+                    fontWeight = FontWeight.Bold,
+                    color = NavyPrimary,
+                    fontSize = 16.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Downloading: ${doc.fileName}",
+                    fontSize = 12.sp,
+                    color = MutedText,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                LinearProgressIndicator(
+                    progress = progress,
+                    color = GoldAccent,
+                    trackColor = Color(0xFFF1F5F9),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "${(progress * 100).toInt()}% Transmitted",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = NavyPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun UploadDocumentDialog(
+    onDismiss: () -> Unit,
+    onUpload: (String, String, String, String, String, String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var selectedType by remember { mutableStateOf("Student Pilot License") }
+    var docNum by remember { mutableStateOf("") }
+    var issueDate by remember { mutableStateOf("") }
+    var expiryDate by remember { mutableStateOf("") }
+    var desc by remember { mutableStateOf("") }
+
+    var expandedType by remember { mutableStateOf(false) }
+
+    val docTypes = listOf(
+        "Student Pilot License",
+        "Medical Certificate",
+        "Radio License",
+        "English Proficiency",
+        "Ground Endorsement",
+        "Logbook Entry",
+        "Other Rating"
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .padding(vertical = 16.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White
+        ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
                     Text(
-                        text = "Edit Cadet Profile",
+                        text = "Upload Training Document",
                         fontWeight = FontWeight.Bold,
                         color = NavyPrimary,
                         style = MaterialTheme.typography.titleMedium
                     )
-
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Full Name") },
-                        modifier = Modifier.fillMaxWidth().testTag("reg_name_input"),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) }
+                    Text(
+                        text = "Submit a copy of your verified aviation certificate or license. Once submitted, ground instructors will review its validity.",
+                        fontSize = 11.sp,
+                        color = MutedText,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
+                }
 
+                item {
                     OutlinedTextField(
-                        value = studentId,
-                        onValueChange = { studentId = it },
-                        label = { Text("KAC Student ID") },
-                        modifier = Modifier.fillMaxWidth().testTag("reg_id_input"),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Document Title (e.g., VHF License)") },
+                        modifier = Modifier.fillMaxWidth().testTag("upload_title_input"),
+                        singleLine = true
                     )
+                }
 
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("Academy Email") },
-                        modifier = Modifier.fillMaxWidth().testTag("reg_email_input"),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-                    )
-
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text("Phone Number") },
-                        modifier = Modifier.fillMaxWidth().testTag("reg_phone_input"),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
-                    )
-
-                    // License Dropdown
+                item {
+                    // Type dropdown selection
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
-                            value = licenseType,
+                            value = selectedType,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("License Objective") },
-                            modifier = Modifier.fillMaxWidth().clickable { expandedLicense = true },
-                            leadingIcon = { Icon(Icons.Default.Flight, contentDescription = null) },
+                            label = { Text("Document Type") },
+                            modifier = Modifier.fillMaxWidth().clickable { expandedType = true },
+                            leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
                             trailingIcon = {
-                                IconButton(onClick = { expandedLicense = true }) {
+                                IconButton(onClick = { expandedType = true }) {
                                     Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                                 }
                             }
                         )
                         DropdownMenu(
-                            expanded = expandedLicense,
-                            onDismissRequest = { expandedLicense = false },
+                            expanded = expandedType,
+                            onDismissRequest = { expandedType = false },
                             modifier = Modifier.fillMaxWidth(0.9f)
                         ) {
-                            licenseOptions.forEach { opt ->
+                            docTypes.forEach { type ->
                                 DropdownMenuItem(
-                                    text = { Text(opt) },
+                                    text = { Text(type) },
                                     onClick = {
-                                        licenseType = opt
-                                        expandedLicense = false
+                                        selectedType = type
+                                        expandedType = false
                                     }
                                 )
                             }
                         }
                     }
+                }
 
-                    // Medical Dropdown
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        OutlinedTextField(
-                            value = medicalStatus,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Medical Certificate Status") },
-                            modifier = Modifier.fillMaxWidth().clickable { expandedMedical = true },
-                            leadingIcon = { Icon(Icons.Default.LocalHospital, contentDescription = null) },
-                            trailingIcon = {
-                                IconButton(onClick = { expandedMedical = true }) {
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                                }
-                            }
-                        )
-                        DropdownMenu(
-                            expanded = expandedMedical,
-                            onDismissRequest = { expandedMedical = false },
-                            modifier = Modifier.fillMaxWidth(0.9f)
-                        ) {
-                            medicalOptions.forEach { opt ->
-                                DropdownMenuItem(
-                                    text = { Text(opt) },
-                                    onClick = {
-                                        medicalStatus = opt
-                                        expandedMedical = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
+                item {
                     OutlinedTextField(
-                        value = totalHoursText,
-                        onValueChange = { totalHoursText = it },
-                        label = { Text("Total Certified Flight Hours") },
-                        modifier = Modifier.fillMaxWidth().testTag("reg_hours_input"),
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Timelapse, contentDescription = null) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                        value = docNum,
+                        onValueChange = { docNum = it },
+                        label = { Text("License / Certificate Ref Number") },
+                        modifier = Modifier.fillMaxWidth().testTag("upload_ref_input"),
+                        singleLine = true
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Button(
-                        onClick = {
-                            val hoursVal = totalHoursText.toFloatOrNull() ?: currentProfile.totalHours
-                            val updated = StudentProfile(
-                                id = 1,
-                                fullName = name,
-                                studentId = studentId,
-                                licenseType = licenseType,
-                                medicalStatus = medicalStatus,
-                                totalHours = hoursVal,
-                                email = email,
-                                phone = phone,
-                                isRegistered = name.isNotBlank() && studentId.isNotBlank()
-                            )
-                            onSave(updated)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("save_profile_button"),
-                        shape = RoundedCornerShape(12.dp)
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = "Save")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Save Cadet Credentials", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        OutlinedTextField(
+                            value = issueDate,
+                            onValueChange = { issueDate = it },
+                            label = { Text("Issue Date") },
+                            placeholder = { Text("YYYY-MM-DD") },
+                            modifier = Modifier.weight(1f).testTag("upload_issue_input"),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = expiryDate,
+                            onValueChange = { expiryDate = it },
+                            label = { Text("Expiry Date") },
+                            placeholder = { Text("YYYY-MM-DD") },
+                            modifier = Modifier.weight(1f).testTag("upload_expiry_input"),
+                            singleLine = true
+                        )
+                    }
+                }
+
+                item {
+                    OutlinedTextField(
+                        value = desc,
+                        onValueChange = { desc = it },
+                        label = { Text("Document Description / Notes") },
+                        modifier = Modifier.fillMaxWidth().height(80.dp).testTag("upload_desc_input"),
+                        maxLines = 3
+                    )
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Cancel")
+                        }
+                        Button(
+                            onClick = {
+                                if (title.isNotBlank() && docNum.isNotBlank() && issueDate.isNotBlank()) {
+                                    onUpload(title, selectedType, docNum, issueDate, expiryDate.ifEmpty { "Never" }, desc.ifEmpty { "Cadet submitted training record." })
+                                }
+                            },
+                            enabled = title.isNotBlank() && docNum.isNotBlank() && issueDate.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary),
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Submit Document")
+                        }
                     }
                 }
             }
@@ -1967,7 +2820,8 @@ data class QuizQuestion(
 @Composable
 fun CatalogTab(
     profile: StudentProfile?,
-    onInquire: (courseName: String, message: String) -> Unit
+    onInquire: (courseName: String, message: String) -> Unit,
+    onNavigateToFinance: () -> Unit
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
@@ -3606,6 +4460,215 @@ fun FinanceTab(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Send Email", fontSize = 11.sp)
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// UPCOMING FLIGHTS 24-HOUR ALERT & UTILITIES
+// ==========================================
+fun isWithinNext24Hours(bookingDateStr: String, bookingTimeStr: String): Boolean {
+    try {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val bookingDate = sdf.parse(bookingDateStr) ?: return false
+        
+        val today = sdf.parse(sdf.format(java.util.Date())) ?: return false
+        val diffDays = (bookingDate.time - today.time) / (24 * 60 * 60 * 1000)
+        
+        // If booking is today or tomorrow, let's verify exact times
+        if (diffDays == 0L || diffDays == 1L) {
+            val cleanTime = bookingTimeStr.trim()
+            val formats = listOf(
+                "yyyy-MM-dd hh:mm a",
+                "yyyy-MM-dd HH:mm a",
+                "yyyy-MM-dd HH:mm",
+                "yyyy-MM-dd h:mm a"
+            )
+            for (fmt in formats) {
+                try {
+                    val fullSdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
+                    val bookingDateTime = fullSdf.parse("$bookingDateStr $cleanTime")
+                    if (bookingDateTime != null) {
+                        val currentTime = java.util.Date()
+                        val diffMs = bookingDateTime.time - currentTime.time
+                        // Within next 24 hours (including past up to 1 hour ago just in case of flight in progress)
+                        if (diffMs in -3600000..(24 * 60 * 60 * 1000)) {
+                            return true
+                        }
+                    }
+                } catch (e: Exception) {
+                    // try next format
+                }
+            }
+            
+            // Fallback: If it's today and the time string parsing failed, let's count it as within next 24 hours!
+            if (diffDays == 0L) return true
+        }
+    } catch (e: Exception) {
+        // ignore
+    }
+    return false
+}
+
+@Composable
+fun UpcomingFlightsAlert(
+    bookings: List<FlightBooking>,
+    onNavigateToScheduling: () -> Unit,
+    onAddMockFlight: () -> Unit
+) {
+    // Determine flights in the next 24 hours
+    val upcomingFlights = remember(bookings) {
+        bookings.filter { booking ->
+            booking.status == "Scheduled" && isWithinNext24Hours(booking.date, booking.time)
+        }
+    }
+
+    if (upcomingFlights.isNotEmpty()) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("upcoming_flights_alert_card"),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFFFEF3C7) // soft amber
+            ),
+            border = BorderStroke(1.5.dp, Color(0xFFF59E0B)), // amber-500
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Alert",
+                        tint = Color(0xFFD97706), // amber-600
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Upcoming Departure Alert (Next 24 Hours)",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF78350F), // amber-900
+                        fontSize = 15.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    Surface(
+                        color = Color(0xFFD97706),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "${upcomingFlights.size} SESSION${if (upcomingFlights.size > 1) "S" else ""}",
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                upcomingFlights.forEachIndexed { index, flight ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            color = Color(0xFFF59E0B).copy(alpha = 0.3f),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                    
+                    Column {
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = flight.aircraft,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF78350F),
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "${flight.time}",
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFB45309),
+                                fontSize = 13.sp
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(2.dp))
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Instructor: ${flight.instructor}",
+                                fontSize = 11.sp,
+                                color = Color(0xFF92400E)
+                            )
+                            Text(
+                                text = "Purpose: ${flight.purpose}",
+                                fontSize = 11.sp,
+                                color = Color(0xFF92400E)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Subtle or helper card that lets the user know there are no flights in the next 24 hours,
+        // and offers a quick "Simulate Flight in 2 hours" button to see how the alert behaves!
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("upcoming_flights_empty_card"),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFFF8FAFC) // very soft gray
+            ),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Clear Status",
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Next 24 Hours: No Departures Scheduled",
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF334155),
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    // Small click to trigger dynamic mock flight in next 24 hours!
+                    TextButton(
+                        onClick = onAddMockFlight,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp).testTag("simulate_flight_btn")
+                    ) {
+                        Text(
+                            text = "Simulate 24h Flight",
+                            fontSize = 11.sp,
+                            color = NavyPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }

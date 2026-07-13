@@ -54,3 +54,16 @@ data class PaymentTransaction(
     val receiptNumber: String,
     val billingPhoneOrEmail: String
 )
+
+data class AviationDocument(
+    val id: String,
+    val title: String,
+    val type: String, // "Medical Certificate", "Student Pilot License", "Radio License", etc.
+    val fileName: String,
+    val issueDate: String,
+    val expiryDate: String,
+    val status: String, // "Active / Verified", "Pending Verification", "Expired"
+    val description: String,
+    val verifiedBy: String = "Capt. Ronald Kiprop (Chief Ground Instructor)",
+    val docNumber: String
+)

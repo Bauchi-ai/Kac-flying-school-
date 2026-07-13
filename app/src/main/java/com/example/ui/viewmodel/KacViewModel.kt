@@ -8,10 +8,13 @@ import com.example.data.model.CurriculumModule
 import com.example.data.model.FlightBooking
 import com.example.data.model.StudentProfile
 import com.example.data.model.PaymentTransaction
+import com.example.data.model.AviationDocument
 import com.example.data.repository.KacRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class KacViewModel(application: Application) : AndroidViewModel(application) {
@@ -44,20 +47,73 @@ class KacViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
-    val paymentTransactions: StateFlow<List<PaymentTransaction>> = repository.paymentTransactions
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
-
-    init {
-        viewModelScope.launch {
-            repository.checkAndSeed()
-        }
-    }
-
-    fun saveProfile(profile: StudentProfile) {
+     val paymentTransactions: StateFlow<List<PaymentTransaction>> = repository.paymentTransactions
+         .stateIn(
+             scope = viewModelScope,
+             started = SharingStarted.WhileSubscribed(5000),
+             initialValue = emptyList()
+         )
+ 
+     private val _aviationDocuments = MutableStateFlow<List<AviationDocument>>(emptyList())
+     val aviationDocuments: StateFlow<List<AviationDocument>> = _aviationDocuments.asStateFlow()
+ 
+     init {
+         _aviationDocuments.value = listOf(
+             AviationDocument(
+                 id = "DOC-001",
+                 title = "Student Pilot License (SPL)",
+                 type = "Student Pilot License",
+                 fileName = "KAC_SPL_2026_0491.pdf",
+                 issueDate = "2026-01-10",
+                 expiryDate = "2028-01-10",
+                 status = "Active / Verified",
+                 description = "Official Civil Aviation Authority Student Pilot License endorsement allowing solo flight trainer operations.",
+                 docNumber = "KCAA/SPL/98421"
+             ),
+             AviationDocument(
+                 id = "DOC-002",
+                 title = "Class 2 Medical Certificate",
+                 type = "Medical Certificate",
+                 fileName = "KAC_MED_CLASS2_0491.pdf",
+                 issueDate = "2026-02-15",
+                 expiryDate = "2027-02-15",
+                 status = "Active / Verified",
+                 description = "ICAO Annex 1 / KCAA Class 2 medical assessment certificate for Private Pilot privileges.",
+                 docNumber = "MED-KCAA-26-8802"
+             ),
+             AviationDocument(
+                 id = "DOC-003",
+                 title = "VHF Radio Telephony License",
+                 type = "Radio License",
+                 fileName = "KAC_RTL_2026_0312.pdf",
+                 issueDate = "2026-03-01",
+                 expiryDate = "2031-03-01",
+                 status = "Endorsed / Active",
+                 description = "Aeronautical Mobile Radio operator endorsement for VHF radio communications.",
+                 docNumber = "RT-2026-00342"
+             ),
+             AviationDocument(
+                 id = "DOC-004",
+                 title = "English Language Proficiency (ELP)",
+                 type = "English Proficiency",
+                 fileName = "KAC_ELP_LEVEL6_0190.pdf",
+                 issueDate = "2026-01-20",
+                 expiryDate = "2029-01-20",
+                 status = "Verified (Level 6)",
+                 description = "ICAO English Language Proficiency Certification (Expert Level 6 rating).",
+                 docNumber = "ELP-KCAA-L6-261"
+             )
+         )
+         viewModelScope.launch {
+             repository.checkAndSeed()
+         }
+     }
+ 
+     fun uploadDocument(document: AviationDocument) {
+         _aviationDocuments.value = _aviationDocuments.value + document
+     }
+ 
+     fun saveProfile(profile: StudentProfile) {
         viewModelScope.launch {
             repository.saveProfile(profile)
         }
