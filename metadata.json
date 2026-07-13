@@ -1,0 +1,6 @@
+{
+  "name": "KAC Flying School",
+  "description": "The official student portal for pilot registration, flight scheduling, and aviation course curriculum management at KAC Flying School",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
