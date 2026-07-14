@@ -67,3 +67,17 @@ data class AviationDocument(
     val verifiedBy: String = "Capt. Ronald Kiprop (Chief Ground Instructor)",
     val docNumber: String
 )
+
+@Entity(tableName = "flight_logs")
+data class FlightLog(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val date: String,
+    val aircraftReg: String,
+    val aircraftModel: String,
+    val routeFrom: String,
+    val routeTo: String,
+    val durationHours: Float,
+    val landings: Int,
+    val flightType: String, // "Dual (With Instructor)", "Solo Flight", "Pilot-In-Command (PIC)"
+    val remarks: String
+)

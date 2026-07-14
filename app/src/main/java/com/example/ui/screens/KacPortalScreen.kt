@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,6 +50,7 @@ import com.example.data.model.FlightBooking
 import com.example.data.model.StudentProfile
 import com.example.data.model.PaymentTransaction
 import com.example.data.model.AviationDocument
+import com.example.data.model.FlightLog
 import com.example.ui.viewmodel.KacViewModel
 
 // Custom Theme Color Tokens
@@ -83,6 +85,7 @@ fun KacPortalScreen(
     val modulesState by viewModel.curriculumModules.collectAsStateWithLifecycle()
     val transactionsState by viewModel.paymentTransactions.collectAsStateWithLifecycle()
     val documentsState by viewModel.aviationDocuments.collectAsStateWithLifecycle()
+    val flightLogsState by viewModel.flightLogs.collectAsStateWithLifecycle()
 
     var activeQuizModule by remember { mutableStateOf<CurriculumModule?>(null) }
 
@@ -202,6 +205,9 @@ fun KacPortalScreen(
                         profile = profileState,
                         bookings = bookingsState,
                         modules = modulesState,
+                        flightLogs = flightLogsState,
+                        onAddFlightLog = { log -> viewModel.addFlightLog(log) },
+                        onDeleteFlightLog = { id, hrs -> viewModel.deleteFlightLog(id, hrs) },
                         onNavigate = { tab -> currentTab = tab },
                         onAddMockFlight = {
                             val currentDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
@@ -302,10 +308,215 @@ fun KacPortalScreen(
 // 1. DASHBOARD PORTAL TAB
 // ==========================================
 @Composable
+fun TrainingRadarChart(
+    groundSchoolPercent: Float,
+    totalHoursPercent: Float,
+    soloHoursPercent: Float,
+    xcHoursPercent: Float,
+    instrumentHoursPercent: Float,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .width(260.dp)
+            .height(240.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        val progressValues = listOf(
+            groundSchoolPercent.coerceIn(0f, 1f),
+            totalHoursPercent.coerceIn(0f, 1f),
+            soloHoursPercent.coerceIn(0f, 1f),
+            xcHoursPercent.coerceIn(0f, 1f),
+            instrumentHoursPercent.coerceIn(0f, 1f)
+        )
+
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp)
+        ) {
+            val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+            val maxRadius = (size.minDimension / 2f) * 0.9f
+
+            // Draw concentric pentagons (grids at 25%, 50%, 75%, 100%)
+            for (level in 1..4) {
+                val radiusFraction = level * 0.25f
+                val radius = maxRadius * radiusFraction
+                val path = androidx.compose.ui.graphics.Path()
+                for (i in 0 until 5) {
+                    val angle = -Math.PI / 2.0 + i * (2 * Math.PI / 5.0)
+                    val x = center.x + radius * Math.cos(angle).toFloat()
+                    val y = center.y + radius * Math.sin(angle).toFloat()
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                path.close()
+                drawPath(
+                    path = path,
+                    color = Color.LightGray.copy(alpha = 0.5f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                )
+            }
+
+            // Draw spoke lines
+            for (i in 0 until 5) {
+                val angle = -Math.PI / 2.0 + i * (2 * Math.PI / 5.0)
+                val endX = center.x + maxRadius * Math.cos(angle).toFloat()
+                val endY = center.y + maxRadius * Math.sin(angle).toFloat()
+
+                drawLine(
+                    color = Color.LightGray.copy(alpha = 0.6f),
+                    start = center,
+                    end = androidx.compose.ui.geometry.Offset(endX, endY),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+
+            // Draw progress polygon
+            val progressPath = androidx.compose.ui.graphics.Path()
+            val points = mutableListOf<androidx.compose.ui.geometry.Offset>()
+            for (i in 0 until 5) {
+                val angle = -Math.PI / 2.0 + i * (2 * Math.PI / 5.0)
+                val valRad = maxRadius * progressValues[i]
+                val x = center.x + valRad * Math.cos(angle).toFloat()
+                val y = center.y + valRad * Math.sin(angle).toFloat()
+                points.add(androidx.compose.ui.geometry.Offset(x, y))
+                if (i == 0) progressPath.moveTo(x, y) else progressPath.lineTo(x, y)
+            }
+            progressPath.close()
+
+            // Fill path
+            drawPath(
+                path = progressPath,
+                color = BlueAccent.copy(alpha = 0.25f)
+            )
+            // Draw outline
+            drawPath(
+                path = progressPath,
+                color = NavyPrimary,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+            )
+            // Draw vertices dots
+            for (point in points) {
+                drawCircle(
+                    color = GoldAccent,
+                    radius = 4.dp.toPx(),
+                    center = point
+                )
+                drawCircle(
+                    color = NavyPrimary,
+                    radius = 2.dp.toPx(),
+                    center = point
+                )
+            }
+        }
+
+        // External labels overlaid carefully
+        Box(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = "Ground School\n(${ (groundSchoolPercent*100).toInt() }%)",
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavyPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 2.dp)
+            )
+            Text(
+                text = "Total Hrs\n(${ (totalHoursPercent*100).toInt() }%)",
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavyPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 2.dp)
+            )
+            Text(
+                text = "Solo Hrs\n(${ (soloHoursPercent*100).toInt() }%)",
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavyPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 2.dp, end = 12.dp)
+            )
+            Text(
+                text = "Cross Ctry\n(${ (xcHoursPercent*100).toInt() }%)",
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavyPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(bottom = 2.dp, start = 12.dp)
+            )
+            Text(
+                text = "Instrument\n(${ (instrumentHoursPercent*100).toInt() }%)",
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavyPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun MilestoneProgressBar(
+    title: String,
+    currentValue: Float,
+    targetValue: Float,
+    unit: String,
+    color: Color
+) {
+    val progress = if (targetValue > 0f) currentValue / targetValue else 0f
+    val percentStr = "${(progress * 100).toInt()}%"
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = DarkText
+            )
+            Text(
+                text = "${"%.1f".format(currentValue)} / ${"%.1f".format(targetValue)} $unit ($percentStr)",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = MutedText
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        LinearProgressIndicator(
+            progress = { progress.coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp)),
+            color = color,
+            trackColor = color.copy(alpha = 0.15f)
+        )
+    }
+}
+
+@Composable
 fun DashboardTab(
     profile: StudentProfile?,
     bookings: List<FlightBooking>,
     modules: List<CurriculumModule>,
+    flightLogs: List<FlightLog>,
+    onAddFlightLog: (FlightLog) -> Unit,
+    onDeleteFlightLog: (Int, Float) -> Unit,
     onNavigate: (PortalTab) -> Unit,
     onAddMockFlight: () -> Unit
 ) {
@@ -313,6 +524,19 @@ fun DashboardTab(
     val isRegistered = profile?.isRegistered ?: false
     val totalHours = profile?.totalHours ?: 0.0f
     val nextFlight = bookings.firstOrNull { it.status == "Scheduled" }
+
+    var selectedCertTab by remember { mutableStateOf(0) } // 0 = PPL, 1 = CPL
+    var showLogFlightDialog by remember { mutableStateOf(false) }
+
+    // Dynamic stats calculated from active flight logs
+    val loggedSoloHours = flightLogs.filter { it.flightType.contains("Solo", ignoreCase = true) }.sumOf { it.durationHours.toDouble() }.toFloat()
+    val loggedXcHours = flightLogs.filter { it.routeFrom != it.routeTo }.sumOf { it.durationHours.toDouble() }.toFloat()
+    val loggedInstrumentHours = flightLogs.filter { it.remarks.contains("instrument", ignoreCase = true) || it.flightType.contains("instrument", ignoreCase = true) }.sumOf { it.durationHours.toDouble() }.toFloat()
+
+    val avgProgress = if (modules.isNotEmpty()) {
+        modules.sumOf { it.progressPercent } / modules.size
+    } else 0
+    val groundSchoolPercent = avgProgress / 100f
 
     LazyColumn(
         modifier = Modifier
@@ -328,7 +552,6 @@ fun DashboardTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    // Render image_aviation_hero (seeded at setup)
                     Image(
                         painter = painterResource(id = R.drawable.img_aviation_hero_1783983361908),
                         contentDescription = "KAC Airfield Hero",
@@ -337,7 +560,6 @@ fun DashboardTab(
                             .height(180.dp),
                         contentScale = ContentScale.Crop
                     )
-                    // Gradient overlay to make text highly legible
                     Box(
                         modifier = Modifier
                             .matchParentSize()
@@ -386,7 +608,7 @@ fun DashboardTab(
             }
         }
 
-        // Upcoming 24-Hour Flights Alert
+        // Upcoming Flights Alert
         item {
             UpcomingFlightsAlert(
                 bookings = bookings,
@@ -408,11 +630,6 @@ fun DashboardTab(
                     tint = BlueAccent,
                     modifier = Modifier.weight(1f)
                 )
-                
-                // Calculate average curriculum progress
-                val avgProgress = if (modules.isNotEmpty()) {
-                    modules.sumOf { it.progressPercent } / modules.size
-                } else 0
                 
                 StatCard(
                     title = "Ground Progress",
@@ -470,6 +687,125 @@ fun DashboardTab(
                         contentDescription = "Go",
                         tint = if (isRegistered) Color(0xFF059669) else Color(0xFFEA580C)
                     )
+                }
+            }
+        }
+
+        // Certification Milestones & Radar Chart Card
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                elevation = CardDefaults.cardElevation(2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Certification Training Milestones",
+                        fontWeight = FontWeight.Bold,
+                        color = NavyPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "Track compliance against Kenya Civil Aviation Authority (KCAA) targets.",
+                        fontSize = 11.sp,
+                        color = MutedText,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    TabRow(
+                        selectedTabIndex = selectedCertTab,
+                        containerColor = Color.Transparent,
+                        contentColor = NavyPrimary,
+                        indicator = { tabPositions ->
+                            TabRowDefaults.Indicator(
+                                Modifier.tabIndicatorOffset(tabPositions[selectedCertTab]),
+                                color = BlueAccent
+                            )
+                        },
+                        divider = {}
+                    ) {
+                        Tab(
+                            selected = selectedCertTab == 0,
+                            onClick = { selectedCertTab = 0 },
+                            text = { Text("Private Pilot (PPL)", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        )
+                        Tab(
+                            selected = selectedCertTab == 1,
+                            onClick = { selectedCertTab = 1 },
+                            text = { Text("Commercial (CPL)", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val targetTotalHrs = if (selectedCertTab == 0) 40f else 200f
+                    val targetSoloHrs = if (selectedCertTab == 0) 10f else 100f
+                    val targetXcHrs = if (selectedCertTab == 0) 5f else 20f
+                    val targetInstHrs = if (selectedCertTab == 0) 5f else 10f
+
+                    val groundSchoolPercentForCert = if (selectedCertTab == 0) groundSchoolPercent else 0.35f
+
+                    val totalHrsPercent = (totalHours / targetTotalHrs).coerceIn(0f, 1f)
+                    val soloPercent = (loggedSoloHours / targetSoloHrs).coerceIn(0f, 1f)
+                    val xcPercent = (loggedXcHours / targetXcHrs).coerceIn(0f, 1f)
+                    val instPercent = (loggedInstrumentHours / targetInstHrs).coerceIn(0f, 1f)
+
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TrainingRadarChart(
+                            groundSchoolPercent = groundSchoolPercentForCert,
+                            totalHoursPercent = totalHrsPercent,
+                            soloHoursPercent = soloPercent,
+                            xcHoursPercent = xcPercent,
+                            instrumentHoursPercent = instPercent
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MilestoneProgressBar(
+                            title = "Ground School Modules",
+                            currentValue = if (selectedCertTab == 0) avgProgress.toFloat() else 35f,
+                            targetValue = 100f,
+                            unit = "%",
+                            color = Color(0xFF10B981)
+                        )
+
+                        MilestoneProgressBar(
+                            title = "Total Flight Duration",
+                            currentValue = totalHours,
+                            targetValue = targetTotalHrs,
+                            unit = "hrs",
+                            color = BlueAccent
+                        )
+
+                        MilestoneProgressBar(
+                            title = "Solo Training Duration",
+                            currentValue = loggedSoloHours,
+                            targetValue = targetSoloHrs,
+                            unit = "hrs",
+                            color = Color(0xFFF59E0B)
+                        )
+
+                        MilestoneProgressBar(
+                            title = "Cross-Country (XC) Duration",
+                            currentValue = loggedXcHours,
+                            targetValue = targetXcHrs,
+                            unit = "hrs",
+                            color = Color(0xFF8B5CF6)
+                        )
+
+                        MilestoneProgressBar(
+                            title = "Instrument Training Duration",
+                            currentValue = loggedInstrumentHours,
+                            targetValue = targetInstHrs,
+                            unit = "hrs",
+                            color = Color(0xFFEC4899)
+                        )
+                    }
                 }
             }
         }
@@ -569,6 +905,172 @@ fun DashboardTab(
             }
         }
 
+        // Interactive Flight Logbook Section
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CardBg),
+                elevation = CardDefaults.cardElevation(2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Official Pilot Logbook",
+                                fontWeight = FontWeight.Bold,
+                                color = NavyPrimary,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "${flightLogs.size} flights logged successfully",
+                                fontSize = 11.sp,
+                                color = MutedText
+                            )
+                        }
+                        Button(
+                            onClick = { showLogFlightDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = BlueAccent),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp).testTag("log_flight_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Log", tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Log Flight", fontSize = 12.sp, color = Color.White)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (flightLogs.isEmpty()) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp)
+                        ) {
+                            Icon(Icons.Default.NoteAlt, contentDescription = "No Logs", tint = MutedText, modifier = Modifier.size(40.dp))
+                            Text(
+                                text = "No training flights logged in system yet",
+                                color = MutedText,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            flightLogs.forEach { log ->
+                                var isExpanded by remember { mutableStateOf(false) }
+
+                                Card(
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(containerColor = LightBg),
+                                    border = BorderStroke(0.5.dp, Color.LightGray.copy(alpha = 0.5f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { isExpanded = !isExpanded }
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            val badgeColor = when {
+                                                log.flightType.contains("Solo", ignoreCase = true) -> Color(0xFFF59E0B)
+                                                log.flightType.contains("PIC", ignoreCase = true) || log.flightType.contains("Command", ignoreCase = true) -> Color(0xFF8B5CF6)
+                                                else -> BlueAccent
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .background(badgeColor, CircleShape)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "${log.aircraftReg} (${log.aircraftModel})",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = DarkText
+                                                )
+                                                Text(
+                                                    text = "${log.routeFrom} ➔ ${log.routeTo}",
+                                                    fontSize = 11.sp,
+                                                    color = MutedText
+                                                )
+                                            }
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text(
+                                                    text = "${log.durationHours} hrs",
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 13.sp,
+                                                    color = NavyPrimary
+                                                )
+                                                Text(
+                                                    text = log.date,
+                                                    fontSize = 10.sp,
+                                                    color = MutedText
+                                                )
+                                            }
+                                        }
+
+                                        if (isExpanded) {
+                                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.LightGray.copy(alpha = 0.5f))
+                                            
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Operation Mode: ${log.flightType}",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.sp,
+                                                        color = DarkText
+                                                    )
+                                                    Text(
+                                                        text = "Landings Count: ${log.landings}",
+                                                        fontWeight = FontWeight.Medium,
+                                                        fontSize = 11.sp,
+                                                        color = MutedText
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = "Objective & Performance Remarks:\n${log.remarks}",
+                                                        fontSize = 11.sp,
+                                                        color = DarkText,
+                                                        lineHeight = 15.sp
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        onDeleteFlightLog(log.id, log.durationHours)
+                                                        Toast.makeText(context, "Flight log deleted", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.DeleteOutline,
+                                                        contentDescription = "Delete Log",
+                                                        tint = Color.Red,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Campus Announcements Section (UoN Style)
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -607,6 +1109,188 @@ fun DashboardTab(
                     date = "July 12, 2026",
                     description = "Theoretical tests for MET-101 course modules are now available in the curriculum section. High scores are required for PPL signoff."
                 )
+            }
+        }
+    }
+
+    // Custom Log Flight Dialog Form
+    if (showLogFlightDialog) {
+        var logDate by remember { mutableStateOf(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())) }
+        var aircraftReg by remember { mutableStateOf("5Y-KAC") }
+        var aircraftModel by remember { mutableStateOf("Cessna 172 Skyhawk") }
+        var routeFrom by remember { mutableStateOf("HKNW") }
+        var routeTo by remember { mutableStateOf("HKNW") }
+        var durationStr by remember { mutableStateOf("1.5") }
+        var landingsStr by remember { mutableStateOf("3") }
+        var selectedFlightType by remember { mutableStateOf("Dual (With Instructor)") }
+        var remarks by remember { mutableStateOf("") }
+
+        Dialog(
+            onDismissRequest = { showLogFlightDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.95f)
+                    .wrapContentHeight()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = CardBg
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Log Training Flight",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = NavyPrimary
+                    )
+                    HorizontalDivider()
+
+                    OutlinedTextField(
+                        value = logDate,
+                        onValueChange = { logDate = it },
+                        label = { Text("Flight Date (YYYY-MM-DD)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = aircraftReg,
+                            onValueChange = { aircraftReg = it },
+                            label = { Text("Aircraft Registration") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = aircraftModel,
+                            onValueChange = { aircraftModel = it },
+                            label = { Text("Model") },
+                            modifier = Modifier.weight(1.2f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = routeFrom,
+                            onValueChange = { routeFrom = it },
+                            label = { Text("Departing Airstrip (e.g. HKNW)") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = routeTo,
+                            onValueChange = { routeTo = it },
+                            label = { Text("Arriving Airstrip (e.g. HKNV)") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = durationStr,
+                            onValueChange = { durationStr = it },
+                            label = { Text("Duration (hours)") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        OutlinedTextField(
+                            value = landingsStr,
+                            onValueChange = { landingsStr = it },
+                            label = { Text("Landings") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                    }
+
+                    Text("Flight Operation Type:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val types = listOf("Dual (With Instructor)", "Solo Flight", "Pilot-In-Command (PIC)")
+                        types.forEach { type ->
+                            val selected = selectedFlightType == type
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (selected) BlueAccent else Color.LightGray),
+                                color = if (selected) BlueAccent.copy(alpha = 0.12f) else Color.Transparent,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedFlightType = type }
+                            ) {
+                                Text(
+                                    text = type.replace(" (With Instructor)", "").replace(" Flight", ""),
+                                    fontSize = 11.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (selected) BlueAccent else MutedText,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = remarks,
+                        onValueChange = { remarks = it },
+                        label = { Text("Training Remarks & Performance") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 3
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { showLogFlightDialog = false }) {
+                            Text("Cancel", color = MutedText)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Button(
+                            onClick = {
+                                val durationVal = durationStr.toFloatOrNull()
+                                val landingsVal = landingsStr.toIntOrNull()
+
+                                if (durationVal == null || durationVal <= 0) {
+                                    Toast.makeText(context, "Please enter a valid flight duration", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                if (landingsVal == null || landingsVal < 0) {
+                                    Toast.makeText(context, "Please enter a valid number of landings", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+
+                                val newLog = FlightLog(
+                                    date = logDate,
+                                    aircraftReg = aircraftReg,
+                                    aircraftModel = aircraftModel,
+                                    routeFrom = routeFrom,
+                                    routeTo = routeTo,
+                                    durationHours = durationVal,
+                                    landings = landingsVal,
+                                    flightType = selectedFlightType,
+                                    remarks = remarks.ifEmpty { "Training Flight Completed." }
+                                )
+
+                                onAddFlightLog(newLog)
+                                Toast.makeText(context, "Flight successfully added to logbook!", Toast.LENGTH_LONG).show()
+                                showLogFlightDialog = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = NavyPrimary)
+                        ) {
+                            Text("Save to Logbook", color = Color.White)
+                        }
+                    }
+                }
             }
         }
     }

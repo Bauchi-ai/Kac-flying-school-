@@ -9,6 +9,7 @@ import com.example.data.model.FlightBooking
 import com.example.data.model.StudentProfile
 import com.example.data.model.PaymentTransaction
 import com.example.data.model.AviationDocument
+import com.example.data.model.FlightLog
 import com.example.data.repository.KacRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,8 @@ class KacViewModel(application: Application) : AndroidViewModel(application) {
         database.studentDao(),
         database.flightDao(),
         database.curriculumDao(),
-        database.transactionDao()
+        database.transactionDao(),
+        database.flightLogDao()
     )
 
     val studentProfile: StateFlow<StudentProfile?> = repository.studentProfile
@@ -48,6 +50,13 @@ class KacViewModel(application: Application) : AndroidViewModel(application) {
         )
 
      val paymentTransactions: StateFlow<List<PaymentTransaction>> = repository.paymentTransactions
+         .stateIn(
+             scope = viewModelScope,
+             started = SharingStarted.WhileSubscribed(5000),
+             initialValue = emptyList()
+         )
+
+     val flightLogs: StateFlow<List<FlightLog>> = repository.flightLogs
          .stateIn(
              scope = viewModelScope,
              started = SharingStarted.WhileSubscribed(5000),
@@ -226,6 +235,28 @@ class KacViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     repository.saveProfile(updatedProfile)
                 }
+            }
+        }
+    }
+
+    fun addFlightLog(log: FlightLog) {
+        viewModelScope.launch {
+            repository.addFlightLog(log)
+            studentProfile.value?.let { profile ->
+                val updatedHours = profile.totalHours + log.durationHours
+                val updatedProfile = profile.copy(totalHours = updatedHours)
+                repository.saveProfile(updatedProfile)
+            }
+        }
+    }
+
+    fun deleteFlightLog(id: Int, durationHours: Float) {
+        viewModelScope.launch {
+            repository.deleteFlightLog(id)
+            studentProfile.value?.let { profile ->
+                val updatedHours = (profile.totalHours - durationHours).coerceAtLeast(0.0f)
+                val updatedProfile = profile.copy(totalHours = updatedHours)
+                repository.saveProfile(updatedProfile)
             }
         }
     }

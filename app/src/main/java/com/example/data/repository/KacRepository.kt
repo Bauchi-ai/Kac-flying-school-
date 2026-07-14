@@ -4,10 +4,12 @@ import com.example.data.local.StudentDao
 import com.example.data.local.FlightDao
 import com.example.data.local.CurriculumDao
 import com.example.data.local.TransactionDao
+import com.example.data.local.FlightLogDao
 import com.example.data.model.StudentProfile
 import com.example.data.model.FlightBooking
 import com.example.data.model.CurriculumModule
 import com.example.data.model.PaymentTransaction
+import com.example.data.model.FlightLog
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
@@ -15,12 +17,14 @@ class KacRepository(
     private val studentDao: StudentDao,
     private val flightDao: FlightDao,
     private val curriculumDao: CurriculumDao,
-    private val transactionDao: TransactionDao
+    private val transactionDao: TransactionDao,
+    private val flightLogDao: FlightLogDao
 ) {
     val studentProfile: Flow<StudentProfile?> = studentDao.getProfile()
     val flightBookings: Flow<List<FlightBooking>> = flightDao.getAllBookings()
     val curriculumModules: Flow<List<CurriculumModule>> = curriculumDao.getAllModules()
     val paymentTransactions: Flow<List<PaymentTransaction>> = transactionDao.getAllTransactions()
+    val flightLogs: Flow<List<FlightLog>> = flightLogDao.getAllLogs()
 
     suspend fun saveProfile(profile: StudentProfile) {
         studentDao.insertOrUpdateProfile(profile)
@@ -44,6 +48,14 @@ class KacRepository(
 
     suspend fun deleteTransaction(id: Int) {
         transactionDao.deleteTransactionById(id)
+    }
+
+    suspend fun addFlightLog(log: FlightLog) {
+        flightLogDao.insertLog(log)
+    }
+
+    suspend fun deleteFlightLog(id: Int) {
+        flightLogDao.deleteLogById(id)
     }
 
     suspend fun checkAndSeed() {
@@ -180,6 +192,48 @@ class KacRepository(
             )
             for (tx in seedTransactions) {
                 transactionDao.insertTransaction(tx)
+            }
+        }
+
+        val currentLogs = flightLogDao.getAllLogs().first()
+        if (currentLogs.isEmpty()) {
+            val seedLogs = listOf(
+                FlightLog(
+                    date = "2026-07-10",
+                    aircraftReg = "5Y-KAC",
+                    aircraftModel = "Cessna 172 Skyhawk",
+                    routeFrom = "HKNW (Wilson)",
+                    routeTo = "HKNW (Wilson)",
+                    durationHours = 1.5f,
+                    landings = 5,
+                    flightType = "Dual (With Instructor)",
+                    remarks = "General handling, stalls and steep turns practice. Completed 5 landing touch-and-goes."
+                ),
+                FlightLog(
+                    date = "2026-07-12",
+                    aircraftReg = "5Y-KAC",
+                    aircraftModel = "Cessna 172 Skyhawk",
+                    routeFrom = "HKNW (Wilson)",
+                    routeTo = "HKNV (Naivasha)",
+                    durationHours = 2.0f,
+                    landings = 2,
+                    flightType = "Solo Flight",
+                    remarks = "First solo cross-country flight to Naivasha airstrip. Perfect headwind on landing, smooth return."
+                ),
+                FlightLog(
+                    date = "2026-07-08",
+                    aircraftReg = "5Y-KAS",
+                    aircraftModel = "Piper PA-28 Archer",
+                    routeFrom = "HKNW (Wilson)",
+                    routeTo = "HKNW (Wilson)",
+                    durationHours = 1.0f,
+                    landings = 3,
+                    flightType = "Dual (With Instructor)",
+                    remarks = "Pre-solo circuit checks with instructor. Side slip landing practice and flapless approach."
+                )
+            )
+            for (log in seedLogs) {
+                flightLogDao.insertLog(log)
             }
         }
     }

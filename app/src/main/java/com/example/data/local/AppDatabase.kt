@@ -8,10 +8,11 @@ import com.example.data.model.StudentProfile
 import com.example.data.model.FlightBooking
 import com.example.data.model.CurriculumModule
 import com.example.data.model.PaymentTransaction
+import com.example.data.model.FlightLog
 
 @Database(
-    entities = [StudentProfile::class, FlightBooking::class, CurriculumModule::class, PaymentTransaction::class],
-    version = 2,
+    entities = [StudentProfile::class, FlightBooking::class, CurriculumModule::class, PaymentTransaction::class, FlightLog::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -19,6 +20,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun flightDao(): FlightDao
     abstract fun curriculumDao(): CurriculumDao
     abstract fun transactionDao(): TransactionDao
+    abstract fun flightLogDao(): FlightLogDao
 
     companion object {
         @Volatile

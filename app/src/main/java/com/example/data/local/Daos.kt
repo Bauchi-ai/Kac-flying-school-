@@ -5,6 +5,7 @@ import com.example.data.model.StudentProfile
 import com.example.data.model.FlightBooking
 import com.example.data.model.CurriculumModule
 import com.example.data.model.PaymentTransaction
+import com.example.data.model.FlightLog
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -53,4 +54,16 @@ interface TransactionDao {
 
     @Query("DELETE FROM payment_transactions WHERE id = :id")
     suspend fun deleteTransactionById(id: Int)
+}
+
+@Dao
+interface FlightLogDao {
+    @Query("SELECT * FROM flight_logs ORDER BY date DESC, id DESC")
+    fun getAllLogs(): Flow<List<FlightLog>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLog(log: FlightLog)
+
+    @Query("DELETE FROM flight_logs WHERE id = :id")
+    suspend fun deleteLogById(id: Int)
 }
